@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "es2018",
+    "lib": ["es2018"],
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "importHelpers": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "alwaysStrict": true,
+    "allowJs": false,
+    "noUnusedLocals": true,
+    "removeComments": true,
+    "declaration": true,
+    "declarationDir": "types",
+    "outDir": "dist",
+    "newLine": "lf",
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
