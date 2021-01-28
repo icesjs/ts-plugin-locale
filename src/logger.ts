@@ -15,8 +15,8 @@ export const createLogger = (info: ts.server.PluginCreateInfo): Logger => {
   }
 
   const error = (error: Error) => {
-    log(`Failed ${error.toString()}`)
-    log(`Stack trace: ${error.stack}`)
+    log(`Failed ${error?.toString()}`)
+    log(`Stack trace: ${error?.stack?.split(/\r?\n/).slice(0, 2).join('\n')}`)
   }
 
   return {
