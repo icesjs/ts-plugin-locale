@@ -9,7 +9,8 @@
     "build": "rimraf dist types && tsc -p . --sourceMap --inlineSources"
   },
   "dependencies": {
-    "js-yaml": "^4.0.0"
+    "js-yaml": "^4.0.0",
+    "tslib": "^2.0.0"
   },
   "devDependencies": {
     "@ices/react-locale": "^1.4.0",
