@@ -122,7 +122,7 @@ export class LocalePlugin implements ts.server.PluginModule {
     const { createLanguageServiceSourceFile, updateLanguageServiceSourceFile } = typescript
 
     const apply = (target: any, thisArg: any, [sourceFile, scriptSnapshot, ...rest]: any[]) => {
-      const { strict, alias, baseUrl } = this.options
+      const { strict, alias } = this.options
       const projectRoot = this.createInfo!.project.getCurrentDirectory()
       let fileName: string
       if (typeof sourceFile === 'string') {
@@ -141,14 +141,11 @@ export class LocalePlugin implements ts.server.PluginModule {
               logger: this.logger!,
               templateSource: this.libModule!.templateSource,
               context: projectRoot,
-              tsResolveContext: path.isAbsolute(baseUrl)
-                ? baseUrl
-                : path.join(projectRoot, baseUrl),
+              tsResolveContext: this.getTsResolveContext(projectRoot),
             }) || scriptSnapshot
           : scriptSnapshot,
         ...rest,
       ])
-
       return sourceFile
     }
 
@@ -239,5 +236,16 @@ export class LocalePlugin implements ts.server.PluginModule {
       }
     }
     return false
+  }
+
+  getTsResolveContext(root: string) {
+    const { baseUrl } = this.options
+    if (typeof baseUrl === 'string') {
+      if (path.isAbsolute(baseUrl)) {
+        return baseUrl
+      }
+      return path.join(root, baseUrl)
+    }
+    return root
   }
 }
