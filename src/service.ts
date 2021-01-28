@@ -138,24 +138,77 @@ export default class LanguageService implements ts.LanguageService {
 
   getLocaleSourceFileAtStringLiteralNode(fileName: string, node: ts.Node) {
     const { languageService } = this.createInfo
-    const { parent } = node
     const program = languageService.getProgram()
-    if (!parent || !program || parent.kind !== ts.SyntaxKind.CallExpression) {
+    let { parent } = node
+    if (!parent || !program) {
       return
     }
-    const definition = languageService.getDefinitionAtPosition(fileName, parent.pos + 1)
+    const { name, kind, expression, elements, arguments: args } = parent as any
+
+    if (kind === ts.SyntaxKind.ArrayLiteralExpression) {
+      if (!elements || elements[0] !== node) {
+        return
+      }
+      while ((parent = parent.parent)) {
+        if (parent.kind === ts.SyntaxKind.CallExpression) {
+          break
+        }
+      }
+      if (!parent) {
+        return
+      }
+      const { expression } = parent as any
+      if (expression?.name?.escapedText !== 'apply') {
+        return
+      }
+      return this.getLocaleSourceFileAtPosition(fileName, parent.pos + 1)
+    }
+
+    if (kind === ts.SyntaxKind.CallExpression) {
+      if (
+        !args ||
+        (args[0] !== node &&
+          !(
+            args[1] === node &&
+            expression?.kind === ts.SyntaxKind.PropertyAccessExpression &&
+            expression?.name?.escapedText === 'call'
+          ))
+      ) {
+        return
+      }
+      return this.getLocaleSourceFileAtPosition(fileName, parent.pos + 1)
+    }
+
+    if (kind == ts.SyntaxKind.JsxAttribute) {
+      if (name?.escapedText !== 'id') {
+        return
+      }
+      while ((parent = parent.parent)) {
+        if (
+          parent.kind === ts.SyntaxKind.JsxElement ||
+          parent.kind === ts.SyntaxKind.JsxSelfClosingElement
+        ) {
+          return this.getLocaleSourceFileAtPosition(fileName, parent.pos + 1)
+        }
+      }
+    }
+  }
+
+  getLocaleSourceFileAtPosition(fileName: string, position: number): ts.SourceFile | undefined {
+    const { languageService } = this.createInfo
+    const definition = languageService.getTypeDefinitionAtPosition(fileName, position)
     if (!definition) {
       return
     }
-    const localeDefinition = definition.find(
-      (def) =>
-        def.kind === ts.ScriptElementKind.functionElement &&
-        this.plugin.isLocaleModule(def.fileName)
-    )
-    if (!localeDefinition) {
-      return
+    for (const { kind, fileName } of definition) {
+      if (
+        (kind === ts.ScriptElementKind.functionElement ||
+          kind === ts.ScriptElementKind.classElement) &&
+        this.plugin.isLocaleModule(fileName)
+      ) {
+        return languageService.getProgram()?.getSourceFile(fileName)
+      }
     }
-    return program.getSourceFile(localeDefinition.fileName)
   }
 
   displayPart(text: string, kind: ts.SymbolDisplayPartKind) {
