@@ -1,27 +1,69 @@
-import path from 'path'
 import * as ts from 'typescript/lib/tsserverlibrary'
 import { Logger } from './logger'
-import { LocalePlugin } from './plugin'
+import { LocalePlugin, LibModule } from './plugin'
+import LanguageServiceHelper from './helper'
 
 export type ServiceOptions = {
   typescript: typeof ts
   createInfo: ts.server.PluginCreateInfo
   logger: Logger
   plugin: LocalePlugin
+  libModule: LibModule
 }
 
 // @ts-ignore
 export default class LanguageService implements ts.LanguageService {
-  private readonly typescript: typeof ts
-  private readonly logger: Logger
   private readonly createInfo: ts.server.PluginCreateInfo
-  private plugin: LocalePlugin
+  private readonly serviceHelper: LanguageServiceHelper
+  private readonly plugin: LocalePlugin
+  private readonly libModule: LibModule
 
   constructor(options: ServiceOptions) {
-    this.typescript = options.typescript
-    this.plugin = options.plugin
-    this.logger = options.logger
     this.createInfo = options.createInfo
+    this.plugin = options.plugin
+    this.libModule = options.libModule
+    this.serviceHelper = new LanguageServiceHelper(options)
+  }
+
+  getDefinitionAndBoundSpan(
+    fileName: string,
+    position: number
+  ): ts.DefinitionInfoAndBoundSpan | undefined {
+    const { languageService } = this.createInfo
+    const def = languageService.getDefinitionAndBoundSpan(fileName, position)
+    if (!def?.definitions) {
+      return def
+    }
+
+    const libDts = this.libModule.declaration
+    const program = languageService.getProgram()
+    const libSourceFile = program?.getSourceFile(libDts)
+    const symbol = (libSourceFile as any)?.symbol
+    if (!libSourceFile || !symbol || !program) {
+      return def
+    }
+
+    const checker = program.getTypeChecker()
+    for (const { name, fileName } of def.definitions) {
+      if (this.plugin.isLocaleModule(fileName)) {
+        const exportSymbol = checker.tryGetMemberInModuleExports(name, symbol)
+        if (exportSymbol) {
+          const definitions = languageService.getDefinitionAtPosition(
+            libSourceFile.fileName,
+            exportSymbol.declarations[0].pos + 1
+          )
+          if (definitions) {
+            return {
+              textSpan: def.textSpan,
+              definitions,
+            }
+          }
+        }
+        return
+      }
+    }
+
+    return def
   }
 
   getQuickInfoAtPosition(fileName: string, position: number): ts.QuickInfo | undefined {
@@ -30,228 +72,9 @@ export default class LanguageService implements ts.LanguageService {
     if (info !== undefined) {
       return info
     }
-    const node = this.getTouchingStringLiteralNodeAtPosition(fileName, position)
-    if (!node) {
-      return
-    }
-    const sourceFile = this.getLocaleSourceFileAtStringLiteralNode(fileName, node)
-    if (!sourceFile) {
-      return
-    }
-    const details = this.getMessageKeyDetailsFromBlock(node.text, sourceFile).reverse()
-    if (!details.length) {
-      return
-    }
-    this.logger.log(`get quick info: ${details}`)
-
-    return this.formatDisplayParts(node, details)
-  }
-
-  getMessageKeyDetailsFromBlock(
-    key: string,
-    sourceFile: ts.SourceFile,
-    identifierName = 'Keys',
-    pathMap: { [p: string]: any } = {}
-  ): { text: string; fileName: string }[] {
-    const { statements, fileName } = sourceFile
-    const details = [] as { text: string; fileName: string }[]
-    const imports = [] as typeof details
-    if (pathMap[fileName]) {
-      return details
-    }
-    pathMap[fileName] = 1
-    if (!Array.isArray(statements)) {
-      return details
-    }
-    const program = this.createInfo.languageService.getProgram()
-    //
-    for (const states of statements) {
-      // main loop start
-      if (states.kind === ts.SyntaxKind.ImportDeclaration) {
-        // import start
-        const { moduleSpecifier } = states as ts.ImportDeclaration
-        const { text } = moduleSpecifier as ts.StringLiteral
-        const importSourceFile = this.plugin.isLocaleModule(text)
-          ? program?.getSourceFile(text)
-          : null
-        if (!importSourceFile) {
-          continue
-        }
-        imports.push(
-          ...this.getMessageKeyDetailsFromBlock(key, importSourceFile, identifierName, pathMap)
-        )
-        // import end
-      } else if (states.kind === ts.SyntaxKind.VariableStatement) {
-        // variable start
-        if (details.length) {
-          continue
-        }
-        const { declarationList } = states as ts.VariableStatement
-        for (const { name, initializer } of declarationList.declarations) {
-          // declaration start
-          if (
-            !initializer ||
-            initializer.kind !== ts.SyntaxKind.ObjectLiteralExpression ||
-            name.kind !== ts.SyntaxKind.Identifier ||
-            name.escapedText !== identifierName
-          ) {
-            continue
-          }
-          const { properties } = initializer as ts.ObjectLiteralExpression
-          for (const prop of properties) {
-            const { name, initializer } = prop as any
-            if (name.text === key) {
-              details.push({ text: initializer.text, fileName: sourceFile.fileName })
-              break
-            }
-          }
-          if (details.length) {
-            break
-          }
-          // declaration end
-        }
-        // variable end
-      }
-      // main loop end
-    }
-
-    return [...imports, ...details]
-  }
-
-  getTouchingStringLiteralNodeAtPosition(fileName: string, position: number) {
-    const { languageService } = this.createInfo
-    const { getTouchingPropertyName } = this.typescript as any
-    const program = languageService.getProgram()
-    if (!program || typeof getTouchingPropertyName !== 'function') {
-      return
-    }
-    const sourceFile = program.getSourceFile(fileName)
-    if (!sourceFile) {
-      return
-    }
-    const node = getTouchingPropertyName(sourceFile, position)
-    if (!node || node === sourceFile || node.kind !== ts.SyntaxKind.StringLiteral) {
-      return
-    }
-    return node
-  }
-
-  getLocaleSourceFileAtStringLiteralNode(fileName: string, node: ts.Node) {
-    const { languageService } = this.createInfo
-    const program = languageService.getProgram()
-    let { parent } = node
-    if (!parent || !program) {
-      return
-    }
-    const { name, kind, expression, elements, arguments: args } = parent as any
-
-    if (kind === ts.SyntaxKind.ArrayLiteralExpression) {
-      if (!elements || elements[0] !== node) {
-        return
-      }
-      while ((parent = parent.parent)) {
-        if (parent.kind === ts.SyntaxKind.CallExpression) {
-          break
-        }
-      }
-      if (!parent) {
-        return
-      }
-      const { expression } = parent as any
-      if (expression?.name?.escapedText !== 'apply') {
-        return
-      }
-      return this.getLocaleSourceFileAtPosition(fileName, parent.pos + 1)
-    }
-
-    if (kind === ts.SyntaxKind.CallExpression) {
-      if (
-        !args ||
-        (args[0] !== node &&
-          !(
-            args[1] === node &&
-            expression?.kind === ts.SyntaxKind.PropertyAccessExpression &&
-            expression?.name?.escapedText === 'call'
-          ))
-      ) {
-        return
-      }
-      return this.getLocaleSourceFileAtPosition(fileName, parent.pos + 1)
-    }
-
-    if (kind == ts.SyntaxKind.JsxAttribute) {
-      if (name?.escapedText !== 'id') {
-        return
-      }
-      while ((parent = parent.parent)) {
-        if (
-          parent.kind === ts.SyntaxKind.JsxElement ||
-          parent.kind === ts.SyntaxKind.JsxSelfClosingElement
-        ) {
-          return this.getLocaleSourceFileAtPosition(fileName, parent.pos + 1)
-        }
-      }
-    }
-  }
-
-  getLocaleSourceFileAtPosition(fileName: string, position: number): ts.SourceFile | undefined {
-    const { languageService } = this.createInfo
-    const definition = languageService.getTypeDefinitionAtPosition(fileName, position)
-    if (!definition) {
-      return
-    }
-    for (const { kind, fileName } of definition) {
-      if (
-        (kind === ts.ScriptElementKind.functionElement ||
-          kind === ts.ScriptElementKind.classElement) &&
-        this.plugin.isLocaleModule(fileName)
-      ) {
-        return languageService.getProgram()?.getSourceFile(fileName)
-      }
-    }
-  }
-
-  displayPart(text: string, kind: ts.SymbolDisplayPartKind) {
-    const { displayPart } = this.typescript as any
-    return typeof displayPart === 'function'
-      ? displayPart(text, kind)
-      : { text, kind: ts.SymbolDisplayPartKind[kind] }
-  }
-
-  formatDisplayParts(node: ts.Node, details: { text: string; fileName: string }[]) {
-    const context = this.createInfo.project.getCurrentDirectory()
-    return {
-      kind: ts.ScriptElementKind.string,
-      kindModifiers: ts.ScriptElementKindModifier.none,
-      textSpan: { start: node.pos, length: node.end - node.pos },
-      displayParts: details.reduce((parts, { text, fileName }) => {
-        if (parts.length) {
-          parts.push(
-            this.displayPart('\n', ts.SymbolDisplayPartKind.lineBreak),
-            this.displayPart('\n', ts.SymbolDisplayPartKind.lineBreak)
-          )
-        }
-        for (const t of text.match(/[^\n]+|\n/g) || []) {
-          if (t === '\n') {
-            parts.push(this.displayPart('\n', ts.SymbolDisplayPartKind.lineBreak))
-          } else {
-            const [loc, ...rest] = t.split(':')
-            parts.push(
-              this.displayPart(loc, ts.SymbolDisplayPartKind.enumMemberName),
-              this.displayPart(':', ts.SymbolDisplayPartKind.punctuation),
-              this.displayPart(rest.join(':'), ts.SymbolDisplayPartKind.text)
-            )
-          }
-        }
-        parts.push(
-          this.displayPart('\n', ts.SymbolDisplayPartKind.lineBreak),
-          this.displayPart(
-            path.relative(context, fileName).replace(/\\/g, '/'),
-            ts.SymbolDisplayPartKind.text
-          )
-        )
-        return parts
-      }, [] as ts.SymbolDisplayPart[]),
+    const res = this.serviceHelper.getKeyDetailsAndBoundSpanAtPosition(fileName, position)
+    if (res) {
+      return this.serviceHelper.createDisplayPartsFromKeyDetails(res)
     }
   }
 }

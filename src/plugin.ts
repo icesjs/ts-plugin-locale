@@ -14,10 +14,11 @@ export type PluginOptions = {
   [p: string]: any
 }
 
-type LibModule = {
+export type LibModule = {
   context: string
   packageInfo: { [p: string]: any }
   templateSource: string
+  declaration: string
 }
 
 enum LibType {
@@ -93,6 +94,7 @@ export class LocalePlugin implements ts.server.PluginModule {
       logger: this.logger!,
       createInfo: createInfo,
       typescript: this.typescript,
+      libModule: this.libModule!,
     })
     return createProxy(createInfo.languageService, {
       get: (target: ts.LanguageService, prop: PropertyKey, receiver: any): any => {
@@ -180,10 +182,12 @@ export class LocalePlugin implements ts.server.PluginModule {
         paths: [context],
       })
       const libContext = path.dirname(libPkgPath)
+      const packageInfo = require(libPkgPath)
 
       this.libModule = {
+        packageInfo,
         context: libContext.toLowerCase(),
-        packageInfo: require(libPkgPath),
+        declaration: path.join(libContext, packageInfo.types || 'types/index.d.ts'),
         templateSource: fs.readFileSync(path.join(__dirname, '../lib', src), 'utf8'),
       }
     } catch (err) {
