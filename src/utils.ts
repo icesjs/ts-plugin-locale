@@ -17,3 +17,21 @@ export function getFilePath(file: string, context: string) {
 export function isPluginContext(context: string) {
   return isSamePath(context, getFilePath('..', __dirname))
 }
+
+export function createProxy(target: any, handler: { [p: string]: any }) {
+  const symbol = Symbol.for('locale plugin proxy target')
+  let originalTarget = null
+  for (const sym of Object.getOwnPropertySymbols(target)) {
+    if (sym === symbol) {
+      originalTarget = target[symbol]
+      break
+    }
+  }
+  const proxy = new Proxy(originalTarget || target, handler)
+  if (!originalTarget) {
+    Object.defineProperty(proxy, symbol, {
+      value: target,
+    })
+  }
+  return proxy
+}

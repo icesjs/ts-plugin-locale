@@ -22,3 +22,9 @@
 ```text
 @ices/react-locale
 ```
+
+## Related
+
+[@ices/react-locale](https://www.npmjs.com/package/@ices/react-locale)
+
+[@ices/locale-webpack-plugin](https://www.npmjs.com/package/@ices/locale-webpack-plugin)

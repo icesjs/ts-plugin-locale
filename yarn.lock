@@ -23,10 +23,10 @@
     chalk "^2.0.0"
     js-tokens "^4.0.0"
 
-"@ices/react-locale@^1.4.0":
-  version "1.4.0"
-  resolved "https://registry.npm.taobao.org/@ices/react-locale/download/@ices/react-locale-1.4.0.tgz#83abb8f86a636e3bc88de0cb724a10e8f335d661"
-  integrity sha1-g6u4+GpjbjvIjeDLckoQ6PM11mE=
+"@ices/react-locale@^1.4.1":
+  version "1.4.1"
+  resolved "https://registry.npm.taobao.org/@ices/react-locale/download/@ices/react-locale-1.4.1.tgz#fd2a6fa63e2345dcaeb086a9edc4657b96daf8d9"
+  integrity sha1-/Spvpj4jRdyusIap7cRle5ba+Nk=
   dependencies:
     tslib "^2.1.0"
 

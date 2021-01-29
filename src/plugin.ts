@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import * as ts from 'typescript/lib/tsserverlibrary'
 import { createLogger, Logger } from './logger'
-import { getFilePath, isPluginContext } from './utils'
+import { createProxy, getFilePath, isPluginContext } from './utils'
 import createSnapshot from './snapshot'
 import LanguageService from './service'
 
@@ -61,7 +61,7 @@ export class LocalePlugin implements ts.server.PluginModule {
 
   createProxyForResolveModuleNames(serviceHost: ts.LanguageServiceHost) {
     const resolveModuleNames = serviceHost.resolveModuleNames!
-    serviceHost.resolveModuleNames = this.createProxy(resolveModuleNames, {
+    serviceHost.resolveModuleNames = createProxy(resolveModuleNames, {
       apply: (
         target: typeof resolveModuleNames,
         thisArg: any,
@@ -94,7 +94,7 @@ export class LocalePlugin implements ts.server.PluginModule {
       createInfo: createInfo,
       typescript: this.typescript,
     })
-    return this.createProxy(createInfo.languageService, {
+    return createProxy(createInfo.languageService, {
       get: (target: ts.LanguageService, prop: PropertyKey, receiver: any): any => {
         const value = Reflect.get(target, prop, receiver)
         if (typeof value !== 'function') {
@@ -141,7 +141,7 @@ export class LocalePlugin implements ts.server.PluginModule {
               logger: this.logger!,
               templateSource: this.libModule!.templateSource,
               context: projectRoot,
-              tsResolveContext: this.getTsResolveContext(projectRoot),
+              tsResolveContext: this.getTsResolveContext(),
             }) || scriptSnapshot
           : scriptSnapshot,
         ...rest,
@@ -149,22 +149,12 @@ export class LocalePlugin implements ts.server.PluginModule {
       return sourceFile
     }
 
-    typescript.createLanguageServiceSourceFile = this.createProxy(createLanguageServiceSourceFile, {
+    typescript.createLanguageServiceSourceFile = createProxy(createLanguageServiceSourceFile, {
       apply,
     })
-    typescript.updateLanguageServiceSourceFile = this.createProxy(updateLanguageServiceSourceFile, {
+    typescript.updateLanguageServiceSourceFile = createProxy(updateLanguageServiceSourceFile, {
       apply,
     })
-  }
-
-  createProxy(target: any, handler: { [p: string]: any }) {
-    const symbol = Symbol.for('proxy target')
-    const originalTarget = target[symbol] || target
-    const proxy = new Proxy(originalTarget, handler)
-    Object.defineProperty(proxy, symbol, {
-      value: target,
-    })
-    return proxy
   }
 
   resolveLibModule(context: string) {
@@ -203,6 +193,31 @@ export class LocalePlugin implements ts.server.PluginModule {
     return null
   }
 
+  isLocaleModule(fileName: string) {
+    if (!fileName) {
+      return false
+    }
+    for (const ext of this.options.extensions!) {
+      if (fileName && fileName.toLowerCase().endsWith(ext.toLowerCase())) {
+        return true
+      }
+    }
+    return false
+  }
+
+  getTsResolveContext() {
+    const { project } = this.createInfo!
+    const { baseUrl } = project.getCompilerOptions() || {}
+    const root = project.getCurrentDirectory()
+    if (typeof baseUrl === 'string') {
+      if (path.isAbsolute(baseUrl)) {
+        return baseUrl
+      }
+      return path.join(root, baseUrl)
+    }
+    return root
+  }
+
   updateOptions(config: any) {
     const { name, ...options } = Object.assign({}, config)
     const defaultExtensions = ['.yml', '.yaml']
@@ -217,35 +232,37 @@ export class LocalePlugin implements ts.server.PluginModule {
     if (typeof lib !== 'string') {
       options.lib = LibType.react
     }
-    if (!alias || typeof alias !== 'object') {
-      const compilerOptions = this.createInfo?.project?.getCompilerOptions()
-      options.alias = compilerOptions?.paths
-      options.baseUrl = compilerOptions?.baseUrl
-    }
-
+    options.alias = this.formatResolveAlias(alias)
     this.options = options
   }
 
-  isLocaleModule(fileName: string) {
-    if (!fileName) {
-      return false
-    }
-    for (const ext of this.options.extensions!) {
-      if (fileName && fileName.toLowerCase().endsWith(ext.toLowerCase())) {
-        return true
-      }
-    }
-    return false
-  }
+  formatResolveAlias(alias: any) {
+    const { project } = this.createInfo!
+    const projectRoot = project.getCurrentDirectory()
+    const formattedAlias = {} as { [p: string]: any }
 
-  getTsResolveContext(root: string) {
-    const { baseUrl } = this.options
-    if (typeof baseUrl === 'string') {
-      if (path.isAbsolute(baseUrl)) {
-        return baseUrl
-      }
-      return path.join(root, baseUrl)
+    if (!alias || typeof alias !== 'object') {
+      const compilerOptions = project.getCompilerOptions()
+      alias = Object.assign({}, compilerOptions?.paths)
     }
-    return root
+    for (let [aliasName, aliasPath] of Object.entries(alias as any)) {
+      if (!aliasName || !aliasPath) {
+        continue
+      }
+      if (Array.isArray(aliasPath)) {
+        const paths = aliasPath.filter((item) => item && typeof item === 'string')
+        if (paths.length) {
+          formattedAlias[aliasName] = paths
+        }
+      } else if (typeof aliasPath === 'string') {
+        if (!path.isAbsolute(aliasPath)) {
+          aliasPath = path.join(projectRoot, aliasPath)
+        }
+        formattedAlias[aliasName] = aliasPath
+      }
+    }
+    if (Object.keys(formattedAlias).length) {
+      return formattedAlias
+    }
   }
 }
