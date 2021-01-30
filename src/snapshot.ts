@@ -36,7 +36,7 @@ function createSnapshot(
   includes.forEach((inc, index) => {
     const ident = `KeysType${index}`
     importedKeysType.push(
-      `import { MessageKeys as ${ident} } from ${JSON.stringify(inc.replace(/\\/g, '/'))}`
+      `import type { MessageKeys as ${ident} } from ${JSON.stringify(inc.replace(/\\/g, '/'))}`
     )
     exportedKeysType.push(ident)
   })

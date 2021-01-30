@@ -1,9 +1,9 @@
 import path from 'path'
 import * as ts from 'typescript/lib/tsserverlibrary'
-// import { Logger } from './logger'
-import { LocalePlugin } from './plugin'
+import { escapeRegExpChar } from './utils'
+import { LibModule, LocalePlugin } from './plugin'
 import { ServiceOptions } from './service'
-// import {escapeRegExpChar} from './utils'
+import { Logger } from './logger'
 
 type KeyDetail = {
   key: string
@@ -11,22 +11,76 @@ type KeyDetail = {
   fileName: string
 }
 
-/*type KeyDetailWithPos = KeyDetail & {
+type KeyDetailWithPos = KeyDetail & {
   pos: number
-  line: number
-  sourceLength: number
-  context: { pos: number; length: number }
-}*/
+}
 
 export default class LanguageServiceHelper {
   private readonly typescript: typeof ts
   private readonly createInfo: ts.server.PluginCreateInfo
   private readonly plugin: LocalePlugin
+  private readonly libModule: LibModule
+  private readonly logger: Logger
 
   constructor(options: ServiceOptions) {
     this.typescript = options.typescript
+    this.logger = options.logger
     this.plugin = options.plugin
+    this.libModule = options.libModule
     this.createInfo = options.createInfo
+  }
+
+  getOriginalDefinitions(definitions: readonly ts.DefinitionInfo[]) {
+    const firstDefs = definitions[0]
+    if (
+      firstDefs.kind === ts.ScriptElementKind.moduleElement &&
+      this.plugin.isLocaleModule(firstDefs.fileName)
+    ) {
+      definitions = [
+        {
+          ...firstDefs,
+          textSpan: { start: 0, length: 0 },
+          originalFileName: firstDefs.fileName,
+        },
+      ]
+    } else {
+      const libDefinitions = this.getLibExportDefinitions(definitions)
+      if (libDefinitions) {
+        definitions = libDefinitions
+      }
+    }
+    return definitions
+  }
+
+  getLibExportDefinitions(
+    definitions: readonly ts.DefinitionInfo[]
+  ): readonly ts.DefinitionInfo[] | undefined {
+    const { languageService } = this.createInfo
+    const libDts = this.libModule.declaration
+    const program = languageService.getProgram()
+    const libSourceFile = program?.getSourceFile(libDts)
+    const symbol = (libSourceFile as any)?.symbol
+    if (!libSourceFile || !symbol || !program) {
+      return
+    }
+
+    const checker = program.getTypeChecker()
+    for (const defs of definitions) {
+      const { name, fileName } = defs
+      if (this.plugin.isLocaleModule(fileName)) {
+        const exportSymbol = checker.tryGetMemberInModuleExports(name, symbol)
+        if (exportSymbol) {
+          const exportDefinitions = languageService.getDefinitionAtPosition(
+            libSourceFile.fileName,
+            exportSymbol.declarations[0].pos + 1
+          )
+          if (exportDefinitions) {
+            return exportDefinitions
+          }
+        }
+        return
+      }
+    }
   }
 
   getTouchingStringLiteralNodeAtPosition(
@@ -179,6 +233,27 @@ export default class LanguageServiceHelper {
     }
   }
 
+  getDefinitionsFromKeyDetails(details: KeyDetail[]): readonly ts.DefinitionInfo[] {
+    const definitions = [] as ts.DefinitionInfo[]
+    const items = details.map((detail) => this.getKeyItemsFromKeyDetail(detail))
+    for (const keyItems of items) {
+      if (!keyItems) {
+        continue
+      }
+      for (const { key, fileName, pos } of keyItems) {
+        definitions.push({
+          name: key,
+          kind: ts.ScriptElementKind.string,
+          containerKind: ts.ScriptElementKind.unknown,
+          containerName: '',
+          fileName: fileName,
+          textSpan: { start: pos, length: key.length },
+        })
+      }
+    }
+    return definitions
+  }
+
   getKeyDetailsFromSourceFile(
     key: string,
     sourceFile: ts.SourceFile,
@@ -250,7 +325,7 @@ export default class LanguageServiceHelper {
     return [...imports, ...details]
   }
 
-  /*getKeyItemsFromKeyDetail(detail: KeyDetail): KeyDetailWithPos[] | undefined {
+  getKeyItemsFromKeyDetail(detail: KeyDetail): KeyDetailWithPos[] | undefined {
     const { languageServiceHost } = this.createInfo
     const { key, text, fileName } = detail
     const snapshot = languageServiceHost.getScriptSnapshot(fileName)
@@ -278,19 +353,8 @@ export default class LanguageServiceHelper {
         const value = values[i]
         if (value.startsWith(val)) {
           values.splice(i, 1)
-
           items.push({
-            pos: matched.index + matched[1].length + 1,
-            line: source.substring(0, regx.lastIndex).split(/\n/).length,
-            sourceLength: source.length,
-            context: {
-              pos: matched.index,
-              length:
-                matched[1].length +
-                matched[2].length +
-                matched[3].match(/^\s*!/)!.length +
-                value.length,
-            },
+            pos: matched.index + matched[1].length,
             text: value,
             fileName,
             key,
@@ -305,7 +369,7 @@ export default class LanguageServiceHelper {
     }
 
     return items
-  }*/
+  }
 
   createDisplayPart(text: string, kind: ts.SymbolDisplayPartKind) {
     const { displayPart } = this.typescript as any

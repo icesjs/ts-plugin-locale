@@ -36,6 +36,6 @@ export function createProxy(target: any, handler: { [p: string]: any }) {
   return proxy
 }
 
-/*export function escapeRegExpChar(str: string) {
+export function escapeRegExpChar(str: string) {
   return str.replace(/[|/\\{}()[\]^$+*?.]/g, '\\$&').replace(/-/g, '\\x2d')
-}*/
+}

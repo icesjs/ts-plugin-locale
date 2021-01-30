@@ -10,7 +10,7 @@ import {
 } from '@ices/react-locale'
 export * from '@ices/react-locale'
 
-export { MessageKeys }
+export type { MessageKeys }
 type ValidMessageKeys = MessageKeys extends never ? string : MessageKeys
 type TransComponentProps = Omit<ConstructorParameters<typeof TransComponent>[0], 'id'>
 type TransPropsWithKeys = { id: ValidMessageKeys } & TransComponentProps
