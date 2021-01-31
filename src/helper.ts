@@ -36,51 +36,77 @@ export default class LanguageServiceHelper {
       firstDefs.kind === ts.ScriptElementKind.moduleElement &&
       this.plugin.isLocaleModule(firstDefs.fileName)
     ) {
+      const { fileName } = firstDefs
+      const { languageServiceHost } = this.createInfo
+      const snapshot = languageServiceHost.getScriptSnapshot(fileName)
+      let textSpan
+      if (snapshot) {
+        const content = snapshot.getText(0, snapshot.getLength()) || ''
+        const start = `\n${content}`.search(/[^\s]/) - 1
+        const end = content.search(/[\s]*$/)
+        textSpan = { start, length: end - start }
+      } else {
+        textSpan = { start: 0, length: 0 }
+      }
       definitions = [
         {
           ...firstDefs,
-          textSpan: { start: 0, length: 0 },
-          originalFileName: firstDefs.fileName,
+          textSpan,
+          originalFileName: fileName,
         },
       ]
     } else {
-      const libDefinitions = this.getLibExportDefinitions(definitions)
-      if (libDefinitions) {
-        definitions = libDefinitions
-      }
+      definitions = this.getLibExportDefinitions(definitions)
     }
     return definitions
   }
 
-  getLibExportDefinitions(
-    definitions: readonly ts.DefinitionInfo[]
-  ): readonly ts.DefinitionInfo[] | undefined {
+  getLibExportDefinitions(definitions: readonly ts.DefinitionInfo[]): readonly ts.DefinitionInfo[] {
     const { languageService } = this.createInfo
     const libDts = this.libModule.declaration
     const program = languageService.getProgram()
     const libSourceFile = program?.getSourceFile(libDts)
     const symbol = (libSourceFile as any)?.symbol
-    if (!libSourceFile || !symbol || !program) {
-      return
+
+    if (!program || !libSourceFile || !symbol) {
+      return definitions
+    }
+    const checker = program.getTypeChecker()
+    const newDefs = [...definitions]
+
+    for (const def of definitions) {
+      let { name, kind, fileName } = def
+      if (!this.plugin.isLocaleModule(fileName)) {
+        continue
+      }
+
+      if (kind === ts.ScriptElementKind.localFunctionElement) {
+        if (name === 'translate') {
+          name = 'TranslateFunction'
+        } else if (name === 'pluginTranslate') {
+          name = 'PluginTranslate'
+        }
+      }
+
+      const exportSymbol = checker.tryGetMemberInModuleExports(name, symbol)
+      if (exportSymbol) {
+        const exports = languageService.getDefinitionAtPosition(
+          libSourceFile.fileName,
+          exportSymbol.declarations[0].pos + 1
+        )
+        if (exports) {
+          const libDefs = exports.filter(
+            (d) => !newDefs.some(({ name, fileName }) => name === d.name && fileName === d.fileName)
+          )
+          newDefs.splice(newDefs.indexOf(def), 1, ...libDefs)
+          continue
+        }
+      }
+
+      newDefs.splice(newDefs.indexOf(def), 1)
     }
 
-    const checker = program.getTypeChecker()
-    for (const defs of definitions) {
-      const { name, fileName } = defs
-      if (this.plugin.isLocaleModule(fileName)) {
-        const exportSymbol = checker.tryGetMemberInModuleExports(name, symbol)
-        if (exportSymbol) {
-          const exportDefinitions = languageService.getDefinitionAtPosition(
-            libSourceFile.fileName,
-            exportSymbol.declarations[0].pos + 1
-          )
-          if (exportDefinitions) {
-            return exportDefinitions
-          }
-        }
-        return
-      }
-    }
+    return newDefs
   }
 
   getTouchingStringLiteralNodeAtPosition(

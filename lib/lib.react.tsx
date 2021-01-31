@@ -43,15 +43,19 @@ export type PluginFunction = (
 ) => ReturnType<PluginFunctionType>
 
 const wrapTransFunc = (trans: ReturnType<typeof useTransHook>[0]) => {
-  return (key: ValidMessageKeys, ...pluginArgs: any[]) => trans(key, ...pluginArgs)
+  return function translate(key: ValidMessageKeys, ...pluginArgs: any[]) {
+    return trans(key, ...pluginArgs)
+  }
 }
 
 const wrapPluginTransFunc = (trans: PluginTranslateType) => {
-  return (
+  return function pluginTranslate(
     key: ValidMessageKeys,
     definitions: PluginTransParameters[1],
     options?: PluginTransParameters[2]
-  ) => trans(key, definitions, options)
+  ) {
+    return trans(key, definitions, options)
+  }
 }
 
 const useTransWithKeys = (...args: Parameters<typeof useTransHook>) => {
