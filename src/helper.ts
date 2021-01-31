@@ -206,31 +206,29 @@ export default class LanguageServiceHelper {
     position: number
   ): ts.SourceFile | undefined {
     const { languageService } = this.createInfo
-    const definition = this.getLocaleElementNodeTypeDefinitionAtPosition(fileName, position)
+    const program = languageService.getProgram()
+    if (!program) {
+      return
+    }
+    const definition = this.getLocaleElementNodeTypeDefinitionsAtPosition(fileName, position)
     if (!definition) {
       return
     }
-    return languageService.getProgram()?.getSourceFile(definition.fileName)
+    return program.getSourceFile(definition[0].fileName)
   }
 
-  getLocaleElementNodeTypeDefinitionAtPosition(
+  getLocaleElementNodeTypeDefinitionsAtPosition(
     fileName: string,
     position: number
-  ): ts.DefinitionInfo | undefined {
+  ): ts.DefinitionInfo[] | undefined {
     const { languageService } = this.createInfo
     const definition = languageService.getTypeDefinitionAtPosition(fileName, position)
     if (!definition) {
       return
     }
-    for (const defs of definition) {
-      const { kind, fileName } = defs
-      if (
-        (kind === ts.ScriptElementKind.functionElement ||
-          kind === ts.ScriptElementKind.classElement) &&
-        this.plugin.isLocaleModule(fileName)
-      ) {
-        return defs
-      }
+    const libDefs = definition.filter(({ fileName }) => this.plugin.isLocaleModule(fileName))
+    if (libDefs.length) {
+      return libDefs
     }
   }
 

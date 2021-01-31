@@ -1,6 +1,6 @@
 {
   "name": "@ices/ts-plugin-locale",
-  "version": "1.1.5",
+  "version": "1.2.0",
   "description": "TypeScript's language service plugin that adds IntelliSense for locale components",
   "main": "dist/index.js",
   "types": "types/index.d.ts",

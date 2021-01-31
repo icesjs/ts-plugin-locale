@@ -23,13 +23,13 @@ export default class LanguageService implements ts.LanguageService {
     this.logger = options.logger
     this.plugin = options.plugin
     this.serviceHelper = new LanguageServiceHelper(options)
+    this.logger.log(`Init language service successfully`)
   }
 
   getDefinitionAtPosition(
     fileName: string,
     position: number
   ): readonly ts.DefinitionInfo[] | undefined {
-    this.logger.log(`getDefinitionAtPosition for ${fileName}:${position}`)
     const { languageService } = this.createInfo
     let definitions = languageService.getDefinitionAtPosition(fileName, position)
     if (!definitions || !definitions.length) {
@@ -42,7 +42,6 @@ export default class LanguageService implements ts.LanguageService {
     fileName: string,
     position: number
   ): ts.DefinitionInfoAndBoundSpan | undefined {
-    this.logger.log(`getDefinitionAndBoundSpan for ${fileName}:${position}`)
     const { languageService } = this.createInfo
     let def = languageService.getDefinitionAndBoundSpan(fileName, position)
     if (!def?.definitions || !def.definitions.length) {
@@ -61,7 +60,6 @@ export default class LanguageService implements ts.LanguageService {
   }
 
   getQuickInfoAtPosition(fileName: string, position: number): ts.QuickInfo | undefined {
-    this.logger.log(`getQuickInfoAtPosition for ${fileName}:${position}`)
     const { languageService } = this.createInfo
     const info = languageService.getQuickInfoAtPosition(fileName, position)
     if (info !== undefined) {
